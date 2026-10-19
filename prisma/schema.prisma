@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// CONTRACTOR or CUSTOMER
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String
+  createdAt    DateTime @default(now())
+
+  contractorProfile ContractorProfile?
+  customerProfile   CustomerProfile?
+  jobs              JobRequest[]     @relation("PostedJobs")
+  sentMessages      Message[]
+  contractorThreads Conversation[]   @relation("ContractorThreads")
+  customerThreads   Conversation[]   @relation("CustomerThreads")
+}
+
+model ContractorProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName   String
+  description    String   @default("")
+  phone          String   @default("")
+  contactEmail   String   @default("")
+  website        String   @default("")
+  licenseNotes   String   @default("")
+  insuranceNotes String   @default("")
+  city           String   @default("Abilene")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  trades  ContractorTrade[]
+  areas   ServiceArea[]
+  listing Listing?
+}
+
+/// BASIC or FEATURED. status: INACTIVE, ACTIVE, PAST_DUE, CANCELED
+model Listing {
+  id                   String    @id @default(cuid())
+  contractorProfileId  String    @unique
+  contractor           ContractorProfile @relation(fields: [contractorProfileId], references: [id], onDelete: Cascade)
+  tier                 String    @default("BASIC")
+  status               String    @default("INACTIVE")
+  stripeCustomerId     String?
+  stripeSubscriptionId String?   @unique
+  currentPeriodEnd     DateTime?
+  activatedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model ContractorTrade {
+  id                  String            @id @default(cuid())
+  contractorProfileId String
+  trade               String
+  contractor          ContractorProfile @relation(fields: [contractorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([contractorProfileId, trade])
+  @@index([trade])
+}
+
+model ServiceArea {
+  id                  String            @id @default(cuid())
+  contractorProfileId String
+  label               String
+  kind                String
+  contractor          ContractorProfile @relation(fields: [contractorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([contractorProfileId, label])
+  @@index([label])
+}
+
+model CustomerProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName String
+  description  String   @default("")
+  phone        String   @default("")
+  city         String   @default("Abilene")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// status: OPEN or CLOSED
+model JobRequest {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    User     @relation("PostedJobs", fields: [customerId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  trade       String
+  city        String
+  zip         String   @default("")
+  budgetMin   Int?
+  budgetMax   Int?
+  timeline    String
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  conversations Conversation[]
+
+  @@index([status, trade])
+  @@index([customerId])
+}
+
+model Conversation {
+  id           String      @id @default(cuid())
+  contractorId String
+  customerId   String
+  jobRequestId String?
+  contractor   User        @relation("ContractorThreads", fields: [contractorId], references: [id], onDelete: Cascade)
+  customer     User        @relation("CustomerThreads", fields: [customerId], references: [id], onDelete: Cascade)
+  jobRequest   JobRequest? @relation(fields: [jobRequestId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  messages Message[]
+
+  @@index([contractorId])
+  @@index([customerId])
+  @@index([jobRequestId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}

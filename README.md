@@ -16,6 +16,8 @@ SQLite keeps setup to one file. The Prisma schema is portable to Postgres later 
 
 ## Setup
 
+You need Node.js 20.12 or newer.
+
 ```bash
 npm install
 cp .env.example .env
@@ -24,7 +26,15 @@ npm run db:seed
 npm run dev
 ```
 
-The app listens on [http://127.0.0.1:43123](http://127.0.0.1:43123).
+The app listens on [http://127.0.0.1:43123](http://127.0.0.1:43123). `http://localhost:43123` works too.
+
+`npm install` also generates the Prisma client, through the `postinstall` script.
+
+The placeholder `AUTH_SECRET` in `.env.example` works on your own machine. Before anyone else can reach the app, replace it with a long random string. One way to make one:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
 
 `npm run db:seed` wipes and recreates the sample data. Every sample account uses the password `taylorworks`.
 
@@ -74,7 +84,21 @@ Update the dollar labels in `listingPlans` inside `lib/config.ts` if you change 
 ## Scripts
 
 - `npm run dev` — local server on port 43123
+- `npm run build` — production build
+- `npm start` — serve the production build on port 43123
 - `npm run db:migrate` — apply Prisma migrations
 - `npm run db:seed` — load sample Abilene businesses and contractors
-- `npm run db:reset` — drop the database, migrate, and seed
+- `npm run db:reset` — drop the database, migrate, and seed. Prisma refuses to run this when an AI coding agent starts it, so run it yourself.
 - `npm run lint` — ESLint
+
+## Project configuration
+
+- **`prisma.config.ts`** holds Prisma's settings: where the schema is and the seed command. Once a config file exists, Prisma stops reading `.env` on its own, so this file loads `.env` itself. On a host that sets real environment variables, there's no `.env` and it skips that step.
+- **`next.config.ts`** lists `127.0.0.1` in `allowedDevOrigins`. Next.js only trusts `localhost` by default, and without this entry it blocks live reload for anyone who opens the app at `127.0.0.1`.
+- **`allowScripts`** in `package.json` lists the dependencies that may run install scripts: Prisma, esbuild, and `unrs-resolver`, which ESLint uses. Each entry is pinned to a version. When one of them is upgraded, npm warns about it again. Check the new version, then run `npm approve-scripts <package>`.
+- **`overrides`** in `package.json` pins `deepmerge-ts`, used by Prisma's CLI, to 8.x, which fixes a security advisory in 7.x. Remove it once Prisma depends on 8.x itself.
+
+### Known install warnings
+
+- `eslint@9 ... no longer supported`. ESLint 10 is out, but `eslint-plugin-react`, `eslint-plugin-jsx-a11y` and `eslint-plugin-import`, which `eslint-config-next` uses, don't support it yet. Upgrade once they do.
+- `npm audit` reports high-severity advisories for `braces`. It's pulled in by development tools: the shadcn CLI, and Next's ESLint plugin through `fast-glob`. No patched version exists yet. The advisory concerns deeply nested glob patterns, and these tools only use the project's own patterns.

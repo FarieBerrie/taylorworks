@@ -24,9 +24,9 @@ export async function searchContractors(
       query
         ? {
             OR: [
-              { businessName: { contains: query } },
-              { description: { contains: query } },
-              { city: { contains: query } },
+              { businessName: { contains: query, mode: "insensitive" } },
+              { description: { contains: query, mode: "insensitive" } },
+              { city: { contains: query, mode: "insensitive" } },
             ],
           }
         : {},

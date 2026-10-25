@@ -28,6 +28,11 @@ function mapStripeStatus(status: Stripe.Subscription.Status) {
   }
 }
 
+/** A listing with a Stripe subscription that is still billing: plan changes go through the portal. */
+export function hasLiveSubscription(listing: { stripeSubscriptionId: string | null; status: string } | null | undefined) {
+  return Boolean(listing?.stripeSubscriptionId && (listing.status === "ACTIVE" || listing.status === "PAST_DUE"));
+}
+
 export async function applySubscription(subscription: Stripe.Subscription, profileHint?: string | null) {
   const item = subscription.items.data[0];
   const priceId = item?.price?.id;
@@ -44,10 +49,21 @@ export async function applySubscription(subscription: Stripe.Subscription, profi
     stripeCustomerId: customerId ?? null,
     stripeSubscriptionId: subscription.id,
     currentPeriodEnd: periodEnd,
+    cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
     activatedAt: status === "ACTIVE" ? new Date() : undefined,
   };
 
   if (profileId) {
+    const existing = await prisma.listing.findUnique({ where: { contractorProfileId: profileId } });
+    // An older subscription ending must not switch off a newer one that is still paid up
+    if (
+      existing?.stripeSubscriptionId &&
+      existing.stripeSubscriptionId !== subscription.id &&
+      hasLiveSubscription(existing) &&
+      status !== "ACTIVE"
+    ) {
+      return;
+    }
     await prisma.listing.upsert({
       where: { contractorProfileId: profileId },
       create: {
@@ -67,6 +83,10 @@ export async function applySubscription(subscription: Stripe.Subscription, profi
   await prisma.listing.update({ where: { id: existing.id }, data });
 }
 
+/**
+ * Reads the subscription's current state from Stripe and applies it. Webhook events can arrive
+ * late or out of order, so the event's own copy may be stale; Stripe's live copy never is.
+ */
 export async function syncSubscriptionById(subscriptionId: string, profileHint?: string | null) {
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);

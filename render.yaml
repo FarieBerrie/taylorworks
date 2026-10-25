@@ -1,0 +1,59 @@
+# Render Blueprint for TaylorWorks: the web app and its Postgres database, in one region.
+# In the Render Dashboard choose New > Blueprint, pick this repository, and fill in the values it
+# asks for (the ones marked sync: false). README.md > Going live walks through each one.
+#
+# Cost at these sizes: about $7/month for the web service and $6/month plus storage ($0.30 per GB)
+# for the database. Check render.com/pricing for current prices.
+
+databases:
+  - name: taylorworks-db
+    plan: basic-256mb
+    diskSizeGB: 1 # starts at 1 GB (~$0.30/month); can grow later, never shrink
+    region: ohio
+    databaseName: taylorworks
+    user: taylorworks
+    postgresMajorVersion: "17"
+
+services:
+  - type: web
+    name: taylorworks
+    runtime: node
+    plan: starter
+    region: ohio
+    branch: main
+    buildCommand: npm ci && npm run build
+    # Applies new database migrations before the new version starts taking traffic
+    preDeployCommand: npx prisma migrate deploy
+    startCommand: npx next start -H 0.0.0.0 -p $PORT
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: taylorworks-db
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: BILLING_MODE
+        value: stripe
+      # Your own domain once it's connected (https://...). Until then the onrender.com address is used.
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: BUSINESS_LEGAL_NAME
+        sync: false
+      - key: CONTACT_EMAIL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_BASIC
+        sync: false
+      - key: STRIPE_PRICE_FEATURED
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: ERROR_ALERT_WEBHOOK_URL
+        sync: false

@@ -13,6 +13,19 @@ export const site = {
   state: "Texas",
 } as const;
 
+/**
+ * Who runs the site, for the Terms, Privacy and Contact pages. Set BUSINESS_LEGAL_NAME and
+ * CONTACT_EMAIL in the environment (render.yaml asks for them), and update policiesUpdated
+ * whenever the Terms or Privacy text changes.
+ */
+export const business = {
+  legalName: process.env.BUSINESS_LEGAL_NAME || "TaylorWorks",
+  contactEmail: process.env.CONTACT_EMAIL || "hello@example.com",
+  location: "Abilene, Texas",
+  county: "Taylor County, Texas",
+  policiesUpdated: "October 21, 2026",
+} as const;
+
 export const demoAccounts = {
   password: "taylorworks",
   customer: {

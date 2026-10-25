@@ -3,25 +3,51 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 /// CONTRACTOR or CUSTOMER
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         String
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  email          String   @unique
+  passwordHash   String
+  name           String
+  role           String
+  /// Bumped when the password changes, which signs out every existing session
+  sessionVersion Int      @default(0)
+  /// Email me when someone sends a message
+  emailMessages  Boolean  @default(true)
+  createdAt      DateTime @default(now())
 
   contractorProfile ContractorProfile?
   customerProfile   CustomerProfile?
-  jobs              JobRequest[]     @relation("PostedJobs")
+  jobs              JobRequest[]         @relation("PostedJobs")
   sentMessages      Message[]
-  contractorThreads Conversation[]   @relation("ContractorThreads")
-  customerThreads   Conversation[]   @relation("CustomerThreads")
+  contractorThreads Conversation[]       @relation("ContractorThreads")
+  customerThreads   Conversation[]       @relation("CustomerThreads")
+  resetTokens       PasswordResetToken[]
+}
+
+/// A "forgot password" link. Only a hash of the token is stored; the token itself is in the email.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Attempt counters for rate limiting (logins, sign-ups, reset emails, messages), one row per key
+/// and window. Old rows are deleted as new ones are written.
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
 }
 
 model ContractorProfile {
@@ -54,6 +80,8 @@ model Listing {
   stripeCustomerId     String?
   stripeSubscriptionId String?   @unique
   currentPeriodEnd     DateTime?
+  /// Canceled in Stripe's customer portal: stays listed until currentPeriodEnd, then ends
+  cancelAtPeriodEnd    Boolean   @default(false)
   activatedAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt

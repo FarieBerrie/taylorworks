@@ -7,7 +7,7 @@ import { getSession } from "@/lib/auth";
 import { isListingTier, type ListingTier } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { appUrl, getBillingMode, priceIdForTier } from "@/lib/listing";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, hasLiveSubscription } from "@/lib/stripe";
 
 async function requireContractor() {
   const session = await getSession();
@@ -28,6 +28,9 @@ export async function startCheckout(formData: FormData) {
   if (getBillingMode() !== "stripe") redirect("/billing");
 
   const { session, profile } = await requireContractor();
+  // A second Checkout would start a second subscription and bill twice. Changing plans on a live
+  // subscription happens in Stripe's customer portal instead.
+  if (hasLiveSubscription(profile.listing)) await redirectToPortal(profile.listing?.stripeCustomerId);
   const price = priceIdForTier(tier);
   if (!price || !process.env.STRIPE_SECRET_KEY) {
     redirect("/billing?checkout=missing-keys");
@@ -51,6 +54,32 @@ export async function startCheckout(formData: FormData) {
 
   if (!checkout.url) redirect("/billing?checkout=missing-keys");
   redirect(checkout.url);
+}
+
+/**
+ * Stripe's customer portal: change plan, update the card, see invoices, or cancel. The portal
+ * has to be set up once in the Stripe dashboard (Settings > Billing > Customer portal).
+ */
+async function redirectToPortal(customerId: string | null | undefined): Promise<never> {
+  if (!customerId || !process.env.STRIPE_SECRET_KEY) redirect("/billing");
+  let url: string;
+  try {
+    const portal = await getStripe().billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${appUrl()}/billing`,
+    });
+    url = portal.url;
+  } catch (error) {
+    console.error("[billing] Could not open the customer portal:", error);
+    redirect("/billing?portal=unavailable");
+  }
+  redirect(url);
+}
+
+export async function openBillingPortal() {
+  if (getBillingMode() !== "stripe") redirect("/billing");
+  const { profile } = await requireContractor();
+  await redirectToPortal(profile.listing?.stripeCustomerId);
 }
 
 export async function setMockListing(formData: FormData) {

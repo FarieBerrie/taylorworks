@@ -15,7 +15,13 @@ const contractorSchema = z.object({
   description: z.string().trim().min(20, "Add a short description of the work you do.").max(2000),
   phone: z.string().trim().min(7, "Add a phone number.").max(30),
   contactEmail: z.string().trim().email("Enter a contact email.").max(120),
-  website: z.string().trim().max(200).optional(),
+  // Shown as a link on the public profile, so only web addresses (no javascript: or other schemes)
+  website: z
+    .string()
+    .trim()
+    .max(200)
+    .refine((url) => url === "" || /^https?:\/\/[^\s]+$/i.test(url), "Website should start with https:// (or http://).")
+    .optional(),
   licenseNotes: z.string().trim().min(8, "Add a note about licensing.").max(500),
   insuranceNotes: z.string().trim().min(8, "Add a note about insurance.").max(500),
   city: z.string().refine((city) => cities.some((item) => item.label === city), "Pick a home-base town."),
@@ -123,4 +129,16 @@ export async function updateCustomerProfile(
   revalidatePath("/profile");
   revalidatePath("/dashboard");
   return { error: "", saved: true };
+}
+
+/** The "email me about new messages" switch on the profile page. */
+export async function updateEmailPreferences(formData: FormData) {
+  const session = await getSession();
+  if (!session) redirect("/login?next=/profile");
+  await prisma.user.update({
+    where: { id: session.id },
+    data: { emailMessages: formData.get("emailMessages") === "on" },
+  });
+  revalidatePath("/profile");
+  redirect("/profile?emails=saved");
 }

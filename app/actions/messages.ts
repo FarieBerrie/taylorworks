@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -7,6 +8,8 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isListingPublic } from "@/lib/listing";
+import { notifyNewMessage } from "@/lib/notifications";
+import { rateLimit, retryMessage } from "@/lib/rate-limit";
 
 export type MessageState = { error: string; sent: number };
 
@@ -41,6 +44,8 @@ export async function startConversation(formData: FormData) {
   const contractorUserId = String(formData.get("contractorUserId") ?? "");
   const next = jobId ? `/jobs/${jobId}` : "/contractors";
   if (!session) redirect(`/login?next=${encodeURIComponent(next)}`);
+  const limit = await rateLimit(`thread:user:${session.id}`, 20, 60 * 60);
+  if (!limit.ok) redirect(next);
 
   if (jobId) {
     if (session.role !== "CONTRACTOR") redirect(next);
@@ -74,6 +79,9 @@ export async function sendMessage(prev: MessageState, formData: FormData): Promi
   const session = await getSession();
   if (!session) return { error: "Log in again to send this.", sent: prev.sent };
 
+  const limit = await rateLimit(`message:user:${session.id}`, 30, 10 * 60);
+  if (!limit.ok) return { error: retryMessage(limit.retryAfterSeconds), sent: prev.sent };
+
   const conversationId = String(formData.get("conversationId") ?? "");
   const parsed = bodySchema.safeParse(formData.get("body"));
   if (!parsed.success) {
@@ -86,6 +94,10 @@ export async function sendMessage(prev: MessageState, formData: FormData): Promi
     return { error: "You are not part of this conversation.", sent: prev.sent };
   }
 
+  // Email the other side only if this is the first message they haven't read yet
+  const unreadBefore = await prisma.message.count({
+    where: { conversationId, senderId: session.id, readAt: null },
+  });
   await prisma.message.create({
     data: {
       conversationId,
@@ -93,6 +105,10 @@ export async function sendMessage(prev: MessageState, formData: FormData): Promi
       body: parsed.data,
     },
   });
+  if (unreadBefore === 0) {
+    const recipientId = conversation.contractorId === session.id ? conversation.customerId : conversation.contractorId;
+    after(() => notifyNewMessage({ conversationId, senderId: session.id, recipientId, body: parsed.data }));
+  }
   await prisma.conversation.update({
     where: { id: conversationId },
     data: { updatedAt: new Date() },

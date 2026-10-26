@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-import { applySubscription, getStripe, subscriptionIdFromInvoice, syncSubscriptionById } from "@/lib/stripe";
+import { getStripe, subscriptionIdFromInvoice, syncSubscriptionById } from "@/lib/stripe";
 
 export async function POST(request: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      await applySubscription(event.data.object);
+      // Fetch the subscription's current state: events can arrive late or out of order
+      await syncSubscriptionById(event.data.object.id);
       break;
     }
     case "invoice.payment_failed": {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 
 import { login, signup, type AuthState } from "@/app/actions/auth";
@@ -136,6 +137,17 @@ export function SignupForm() {
       </div>
       <p className="text-sm text-muted-foreground">
         Business accounts are free. Contractor profiles stay off the public directory until a listing is active.
+      </p>
+      <p className="text-sm text-muted-foreground">
+        By creating an account you agree to the{" "}
+        <Link href="/terms" className="text-primary hover:underline">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="text-primary hover:underline">
+          Privacy Policy
+        </Link>
+        .
       </p>
       <Button type="submit" disabled={pending} className="h-10">
         {pending ? "Creating account…" : "Create account"}

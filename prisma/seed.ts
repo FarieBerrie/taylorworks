@@ -3,6 +3,23 @@ import bcrypt from "bcryptjs";
 
 import { demoAccounts } from "../lib/config";
 
+// The seed deletes every row before loading sample data, so it only runs against a database on
+// this machine. Set ALLOW_REMOTE_SEED=true to seed somewhere else (a throwaway staging database).
+const databaseHost = (() => {
+  try {
+    return new URL(process.env.DATABASE_URL ?? "").hostname;
+  } catch {
+    return "";
+  }
+})();
+if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(databaseHost) && process.env.ALLOW_REMOTE_SEED !== "true") {
+  console.error(
+    `Refusing to seed: DATABASE_URL points at "${databaseHost || "an unknown host"}", not this machine. ` +
+      "Seeding deletes all data. Set ALLOW_REMOTE_SEED=true if that's really what you want.",
+  );
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
 function hoursAgo(hours: number) {
@@ -16,6 +33,8 @@ function daysFromNow(days: number) {
 }
 
 async function main() {
+  await prisma.passwordResetToken.deleteMany();
+  await prisma.rateLimit.deleteMany();
   await prisma.message.deleteMany();
   await prisma.conversation.deleteMany();
   await prisma.jobRequest.deleteMany();

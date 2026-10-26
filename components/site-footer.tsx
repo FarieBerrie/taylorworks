@@ -13,16 +13,29 @@ export function SiteFooter() {
             Contractors subscribe to appear in search.
           </p>
         </div>
-        <div className="flex gap-4">
-          <Link href="/contractors" className="hover:text-foreground">
-            Directory
-          </Link>
-          <Link href="/jobs" className="hover:text-foreground">
-            Job board
-          </Link>
-          <Link href="/signup" className="hover:text-foreground">
-            Join
-          </Link>
+        <div className="grid gap-2 sm:justify-items-end">
+          <div className="flex flex-wrap gap-4">
+            <Link href="/contractors" className="hover:text-foreground">
+              Directory
+            </Link>
+            <Link href="/jobs" className="hover:text-foreground">
+              Job board
+            </Link>
+            <Link href="/signup" className="hover:text-foreground">
+              Join
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs">
+            <Link href="/terms" className="hover:text-foreground">
+              Terms
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground">
+              Privacy
+            </Link>
+            <Link href="/contact" className="hover:text-foreground">
+              Contact
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

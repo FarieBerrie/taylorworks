@@ -8,6 +8,7 @@ import { getSession } from "@/lib/auth";
 import { cities, isTradeSlug } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { parseDollars } from "@/lib/format";
+import { rateLimit, retryMessage } from "@/lib/rate-limit";
 
 export type FormState = { error: string };
 
@@ -24,6 +25,8 @@ export async function createJob(_prev: FormState, formData: FormData): Promise<F
   const session = await getSession();
   if (!session) redirect("/login?next=/jobs/new");
   if (session.role !== "CUSTOMER") return { error: "Only business accounts can post jobs." };
+  const limit = await rateLimit(`job:user:${session.id}`, 10, 60 * 60);
+  if (!limit.ok) return { error: retryMessage(limit.retryAfterSeconds) };
 
   const parsed = jobSchema.safeParse({
     title: formData.get("title"),

@@ -3,24 +3,33 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { isListingTier, type ListingTier } from "@/lib/config";
+import { isProduction, stripeConfigured } from "@/lib/env";
 
 export type BillingMode = "mock" | "stripe";
 
+/**
+ * "mock" lists contractors without charging, so it's for development only: in production it needs
+ * ALLOW_MOCK_BILLING=true as well (a private staging site). Production otherwise always uses
+ * Stripe, and if Stripe isn't configured yet the billing page says so instead of handing out
+ * free listings.
+ */
 export function getBillingMode(): BillingMode {
   const explicit = process.env.BILLING_MODE?.trim().toLowerCase();
+  const mockAllowed = !isProduction() || process.env.ALLOW_MOCK_BILLING === "true";
+  if (explicit === "stripe" || !mockAllowed) return "stripe";
   if (explicit === "mock") return "mock";
-  if (explicit === "stripe") return "stripe";
-  const ready = Boolean(
-    process.env.STRIPE_SECRET_KEY &&
-      process.env.STRIPE_WEBHOOK_SECRET &&
-      process.env.STRIPE_PRICE_BASIC &&
-      process.env.STRIPE_PRICE_FEATURED,
-  );
-  return ready ? "stripe" : "mock";
+  return stripeConfigured() ? "stripe" : "mock";
 }
 
+/**
+ * The site's public address. NEXT_PUBLIC_APP_URL when set (your own domain); on Render before
+ * that, the service's onrender.com address, which Render provides as RENDER_EXTERNAL_URL.
+ */
 export function appUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL || "http://127.0.0.1:43123").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL || "http://127.0.0.1:43123").replace(
+    /\/$/,
+    "",
+  );
 }
 
 export function priceIdForTier(tier: ListingTier) {

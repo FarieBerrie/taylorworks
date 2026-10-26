@@ -7,7 +7,9 @@ import { z } from "zod";
 import { createSession, destroySession } from "@/lib/auth";
 import { cities } from "@/lib/config";
 import { prisma } from "@/lib/db";
+import { demoLoginsEnabled } from "@/lib/env";
 import { safeNextPath } from "@/lib/format";
+import { clientIp, rateLimit, retryMessage } from "@/lib/rate-limit";
 
 export type AuthState = { error: string };
 
@@ -21,30 +23,40 @@ const signupSchema = z.object({
   city: z.string().trim().min(2).max(40),
 });
 
+// Compared against when the email has no account, so a wrong email takes as long as a wrong
+// password and the timing doesn't reveal which emails are registered
+const NO_USER_HASH = bcrypt.hashSync("no-such-user", 10);
+
 async function authenticate(formData: FormData) {
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
   const password = String(formData.get("password") ?? "");
   const next = safeNextPath(formData.get("next"), "/dashboard");
-
   if (!email || !password) return { error: "Enter your email and password.", to: next };
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return { error: "Email or password does not match.", to: next };
-
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok || (user.role !== "CONTRACTOR" && user.role !== "CUSTOMER")) {
-    return { error: "Email or password does not match.", to: next };
+  // Per account (stops password guessing on one email) and per address (stops trying many)
+  const ip = await clientIp();
+  const byEmail = await rateLimit(`login:email:${email}`, 10, 15 * 60);
+  const byIp = await rateLimit(`login:ip:${ip}`, 30, 15 * 60);
+  if (!byEmail.ok || !byIp.ok) {
+    return { error: retryMessage(Math.max(byEmail.retryAfterSeconds, byIp.retryAfterSeconds)), to: next };
   }
 
-  await createSession({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-  });
-
+  const user = await prisma.user.findUnique({ where: { email } });
+  const ok = await bcrypt.compare(password, user?.passwordHash ?? NO_USER_HASH);
+  if (!user || !ok || (user.role !== "CONTRACTOR" && user.role !== "CUSTOMER")) {
+    return { error: "Email or password does not match.", to: next };
+  }
+  await createSession(
+    {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    },
+    user.sessionVersion,
+  );
   return { error: "", to: next === "/dashboard" ? "/dashboard" : next };
 }
 
@@ -54,7 +66,9 @@ export async function login(_prev: AuthState, formData: FormData): Promise<AuthS
   redirect(result.to);
 }
 
+/** The "Enter as…" sample-account buttons. Off in production unless ENABLE_DEMO_LOGINS=true. */
 export async function loginDirect(formData: FormData) {
+  if (!demoLoginsEnabled()) redirect("/login");
   const result = await authenticate(formData);
   if (result.error) redirect(`/login?error=${encodeURIComponent(result.error)}`);
   redirect(result.to);
@@ -79,6 +93,9 @@ export async function signup(_prev: AuthState, formData: FormData): Promise<Auth
   if (!cities.some((city) => city.label === data.city)) {
     return { error: "Pick a town in the Abilene area." };
   }
+
+  const limit = await rateLimit(`signup:ip:${await clientIp()}`, 5, 60 * 60);
+  if (!limit.ok) return { error: retryMessage(limit.retryAfterSeconds) };
 
   const email = data.email.toLowerCase();
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -116,12 +133,15 @@ export async function signup(_prev: AuthState, formData: FormData): Promise<Auth
     },
   });
 
-  await createSession({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: data.role,
-  });
+  await createSession(
+    {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: data.role,
+    },
+    user.sessionVersion,
+  );
 
   redirect(data.role === "CONTRACTOR" ? "/billing" : "/dashboard");
 }

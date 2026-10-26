@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { redirect } from "next/navigation";
 
-import { setMockListing, startCheckout } from "@/app/actions/billing";
+import { openBillingPortal, setMockListing, startCheckout } from "@/app/actions/billing";
 import { Container, Notice, PageHeading, PageSkeleton } from "@/components/shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,9 @@ import { listingPlans, site } from "@/lib/config";
 import { prisma } from "@/lib/db";
 import { firstParam } from "@/lib/format";
 import { formatWhen } from "@/lib/format";
+import { stripeConfigured } from "@/lib/env";
 import { getBillingMode, isListingPublic, listingStatusLabel } from "@/lib/listing";
+import { hasLiveSubscription } from "@/lib/stripe";
 
 export const metadata = { title: "Listing" };
 export const instant = false;
@@ -53,6 +55,10 @@ async function Billing({
   const listed = isListingPublic(profile.listing, now);
   const checkout = firstParam(params.checkout);
   const listing = firstParam(params.listing);
+  const portal = firstParam(params.portal);
+  const stripeReady = stripeConfigured();
+  const subscribed = mode === "stripe" && hasLiveSubscription(profile.listing);
+  const endsAt = profile.listing?.cancelAtPeriodEnd && listed ? profile.listing.currentPeriodEnd : null;
 
   return (
     <Container>
@@ -68,10 +74,24 @@ async function Billing({
             the test keys in .env to use Stripe Checkout.
           </Notice>
         ) : null}
+        {mode === "stripe" && !stripeReady ? (
+          <Notice tone="warn">Listing subscriptions aren&apos;t available yet. Please check back soon.</Notice>
+        ) : null}
         {checkout === "success" ? (
           <Notice tone="ok">
-            Checkout returned. The listing updates when Stripe sends the webhook. In local dev, run the Stripe CLI
-            forwarder described in the README.
+            Thanks! Your listing turns on as soon as Stripe confirms the payment, usually within a minute. Refresh
+            this page to see it.
+          </Notice>
+        ) : null}
+        {portal === "unavailable" ? (
+          <Notice tone="warn">
+            Subscription management isn&apos;t available right now. Please try again later or contact us.
+          </Notice>
+        ) : null}
+        {endsAt ? (
+          <Notice tone="warn">
+            Your subscription is canceled. The listing stays up until {formatWhen(endsAt)}, then leaves the
+            directory. Use Manage subscription to keep it.
           </Notice>
         ) : null}
         {checkout === "cancel" ? <Notice>Checkout was canceled. The listing was not changed.</Notice> : null}
@@ -120,11 +140,19 @@ async function Billing({
                       {current ? "Renew this plan" : `Activate ${plan.name}`}
                     </Button>
                   </form>
+                ) : subscribed ? (
+                  current ? null : (
+                    <form action={openBillingPortal}>
+                      <Button type="submit" variant="outline" className="h-10">
+                        Switch to {plan.name}
+                      </Button>
+                    </form>
+                  )
                 ) : (
                   <form action={startCheckout}>
                     <input type="hidden" name="tier" value={plan.tier} />
-                    <Button type="submit" className="h-10">
-                      Subscribe with Stripe
+                    <Button type="submit" className="h-10" disabled={!stripeReady}>
+                      Subscribe to {plan.name}
                     </Button>
                   </form>
                 )}
@@ -133,6 +161,19 @@ async function Billing({
           );
         })}
       </div>
+      {mode === "stripe" && profile.listing?.stripeCustomerId && stripeReady ? (
+        <form action={openBillingPortal} className="mt-6 grid gap-2">
+          <p className="text-sm text-muted-foreground">
+            Change your plan, update your card, download invoices, or cancel. Canceling keeps your listing up until
+            the end of the period you&apos;ve paid for.
+          </p>
+          <div>
+            <Button type="submit" variant="outline" className="h-10">
+              Manage subscription
+            </Button>
+          </div>
+        </form>
+      ) : null}
       {mode === "mock" && listed ? (
         <form action={setMockListing} className="mt-4">
           <input type="hidden" name="active" value="0" />
